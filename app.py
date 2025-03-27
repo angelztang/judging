@@ -51,20 +51,21 @@ class Score(db.Model):
         self.score = score
         self.timestamp = None
 
-# Test the connection
-try:
-    with app.app_context():
-        db.engine.connect()
-        # Create tables if they don't exist
-        db.create_all()
-        # Verify no automatic score creation
-        initial_scores = Score.query.all()
-        if initial_scores:
-            logger.info(f"Found {len(initial_scores)} initial scores")
-    logger.info("Database connection successful!")
-except Exception as e:
-    logger.error(f"Error connecting to database: {str(e)}")
-    raise
+# Initialize database tables
+def init_db():
+    try:
+        with app.app_context():
+            # Drop all tables first to ensure clean state
+            db.drop_all()
+            # Create tables
+            db.create_all()
+            logger.info("Database tables created successfully!")
+    except Exception as e:
+        logger.error(f"Error initializing database: {str(e)}")
+        raise
+
+# Initialize database on startup
+init_db()
 
 def get_db_connection():
     if 'amazonaws.com' in DATABASE_URL:
