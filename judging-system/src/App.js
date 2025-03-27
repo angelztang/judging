@@ -27,12 +27,17 @@ const calculateAverage = (scores) => {
 };
 
 const getUnseenTeams = (availableTeams, seenTeams) => {
-  return availableTeams.filter(team => !seenTeams.includes(team));
+  const unseenTeams = availableTeams.filter(team => !seenTeams.includes(team));
+  console.log('Unseen teams:', unseenTeams);
+  return unseenTeams;
 };
 
 const getTeamsToAssign = (availableTeams, seenTeamsByJudge, judgeSeenTeams) => {
   const unseenTeams = getUnseenTeams(availableTeams, judgeSeenTeams);
-  if (unseenTeams.length === 0) return [];
+  if (unseenTeams.length === 0) {
+    console.log('No unseen teams available');
+    return [];
+  }
 
   const teamJudgmentCounts = {};
   unseenTeams.forEach(team => {
@@ -42,9 +47,13 @@ const getTeamsToAssign = (availableTeams, seenTeamsByJudge, judgeSeenTeams) => {
     });
   });
 
-  return unseenTeams
+  const assignedTeams = unseenTeams
     .sort((a, b) => teamJudgmentCounts[a] - teamJudgmentCounts[b])
     .slice(0, 5);
+
+  console.log('Teams assigned:', assignedTeams);
+  console.log('Team judgment counts:', teamJudgmentCounts);
+  return assignedTeams;
 };
 
 // Add error handling for score submission
@@ -177,7 +186,9 @@ function App() {
 
     if (!currentTeamsByJudge[selectedJudge]) {
       const judgeSeenTeams = seenTeamsByJudge[selectedJudge] || [];
+      console.log('Judge seen teams:', judgeSeenTeams);
       const teamsToAssign = getTeamsToAssign(teams, seenTeamsByJudge, judgeSeenTeams);
+      console.log('Assigning teams to judge:', selectedJudge, teamsToAssign);
       setCurrentTeamsByJudge(prev => ({ ...prev, [selectedJudge]: teamsToAssign }));
       setScoresByJudge(prev => ({ ...prev, [selectedJudge]: Array(teamsToAssign.length).fill("") }));
     }
@@ -269,6 +280,7 @@ function App() {
     }
 
     try {
+      console.log('Submitting scores for judge:', currentJudge, 'teams:', currentTeams);
       for (let i = 0; i < currentTeams.length; i++) {
         await submitScore(currentJudge, currentTeams[i], parseFloat(currentScores[i]));
         if (i < currentTeams.length - 1) {
@@ -283,10 +295,15 @@ function App() {
       });
       setScoreTableData(newScoreTable);
 
-      setSeenTeamsByJudge(prev => ({
-        ...prev,
-        [currentJudge]: [...(prev[currentJudge] || []), ...currentTeams]
-      }));
+      // Update seen teams
+      setSeenTeamsByJudge(prev => {
+        const newSeenTeams = {
+          ...prev,
+          [currentJudge]: [...(prev[currentJudge] || []), ...currentTeams]
+        };
+        console.log('Updated seen teams for judge:', currentJudge, newSeenTeams[currentJudge]);
+        return newSeenTeams;
+      });
 
       setCurrentTeamsByJudge(prev => {
         const newState = { ...prev };
@@ -302,7 +319,6 @@ function App() {
       setCurrentJudge("");
       setFormErrors({});
     } catch (error) {
-      // Silently handle any errors
       console.log("Error handled silently:", error);
     }
   };
