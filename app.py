@@ -16,7 +16,10 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__, static_folder='static', static_url_path='')
 
 # Configure database
-app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'postgresql://postgres:postgres@localhost:5432/judging')
+DATABASE_URL = os.getenv('DATABASE_URL')
+if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL or 'postgresql://postgres:postgres@localhost:5432/judging'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # Initialize extensions
@@ -37,13 +40,11 @@ def init_db():
     """Initialize the database."""
     try:
         with app.app_context():
-            # Drop all tables first to ensure clean state
-            db.drop_all()
-            # Create all tables
+            # Create tables if they don't exist
             db.create_all()
-            logger.info("Database tables created successfully")
+            logger.info("Database tables initialized successfully")
     except Exception as e:
-        logger.error(f"Error creating database tables: {e}")
+        logger.error(f"Error initializing database: {e}")
         raise
 
 # Initialize database
