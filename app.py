@@ -57,18 +57,7 @@ def init_db():
         with app.app_context():
             # Create tables if they don't exist
             db.create_all()
-            
-            # Check if the unique constraint exists
-            with db.engine.connect() as conn:
-                # Drop the constraint if it exists
-                conn.execute(text('DO $$ BEGIN ALTER TABLE "score" DROP CONSTRAINT IF EXISTS unique_judge_team; EXCEPTION WHEN undefined_object THEN NULL; END $$;'))
-                conn.commit()
-                
-                # Add the constraint
-                conn.execute(text('ALTER TABLE "score" ADD CONSTRAINT unique_judge_team UNIQUE (judge, team);'))
-                conn.commit()
-            
-            logger.info("Database tables and constraints initialized successfully!")
+            logger.info("Database tables initialized successfully!")
     except Exception as e:
         logger.error(f"Error initializing database: {str(e)}")
         raise
