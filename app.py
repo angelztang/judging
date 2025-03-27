@@ -61,11 +61,11 @@ def init_db():
             # Check if the unique constraint exists
             with db.engine.connect() as conn:
                 # Drop the constraint if it exists
-                conn.execute(text('DO $$ BEGIN ALTER TABLE score DROP CONSTRAINT IF EXISTS unique_judge_team; EXCEPTION WHEN undefined_object THEN NULL; END $$;'))
+                conn.execute(text('DO $$ BEGIN ALTER TABLE "score" DROP CONSTRAINT IF EXISTS unique_judge_team; EXCEPTION WHEN undefined_object THEN NULL; END $$;'))
                 conn.commit()
                 
                 # Add the constraint
-                conn.execute(text('ALTER TABLE score ADD CONSTRAINT unique_judge_team UNIQUE (judge, team);'))
+                conn.execute(text('ALTER TABLE "score" ADD CONSTRAINT unique_judge_team UNIQUE (judge, team);'))
                 conn.commit()
             
             logger.info("Database tables and constraints initialized successfully!")
