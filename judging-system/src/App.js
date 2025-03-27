@@ -189,8 +189,15 @@ function App() {
       console.log('Judge seen teams:', judgeSeenTeams);
       const teamsToAssign = getTeamsToAssign(teams, seenTeamsByJudge, judgeSeenTeams);
       console.log('Assigning teams to judge:', selectedJudge, teamsToAssign);
-      setCurrentTeamsByJudge(prev => ({ ...prev, [selectedJudge]: teamsToAssign }));
-      setScoresByJudge(prev => ({ ...prev, [selectedJudge]: Array(teamsToAssign.length).fill("") }));
+      
+      if (teamsToAssign.length === 0) {
+        // If no unseen teams, show message and don't assign any teams
+        setCurrentTeamsByJudge(prev => ({ ...prev, [selectedJudge]: [] }));
+        setScoresByJudge(prev => ({ ...prev, [selectedJudge]: [] }));
+      } else {
+        setCurrentTeamsByJudge(prev => ({ ...prev, [selectedJudge]: teamsToAssign }));
+        setScoresByJudge(prev => ({ ...prev, [selectedJudge]: Array(teamsToAssign.length).fill("") }));
+      }
     }
   };
 
@@ -437,9 +444,27 @@ function App() {
                 <div style={{ 
                   color: '#666', 
                   marginTop: '20px',
-                  textAlign: 'center' 
+                  textAlign: 'center',
+                  padding: '15px',
+                  backgroundColor: '#f8f9fa',
+                  borderRadius: '4px',
+                  border: '1px solid #dee2e6'
                 }}>
-                  No more teams available to judge
+                  {seenTeamsByJudge[currentJudge]?.length === teams.length ? (
+                    <div>
+                      <strong>You have judged all available teams!</strong>
+                      <p style={{ marginTop: '5px', fontSize: '0.9em' }}>
+                        Thank you for your participation. You cannot be assigned any more teams.
+                      </p>
+                    </div>
+                  ) : (
+                    <div>
+                      <strong>No teams available at the moment</strong>
+                      <p style={{ marginTop: '5px', fontSize: '0.9em' }}>
+                        Please try again later or contact the administrator if you believe this is an error.
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
             </form>
