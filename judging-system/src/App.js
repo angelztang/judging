@@ -23,7 +23,9 @@ const tableCellStyle = {
 
 const calculateAverage = (scores) => {
   const validScores = Object.values(scores).filter(score => score !== null && score !== undefined);
-  return validScores.length === 0 ? "" : (validScores.reduce((a, b) => a + b, 0) / validScores.length).toFixed(2);
+  if (validScores.length === 0) return "";
+  const sum = validScores.reduce((a, b) => a + b, 0);
+  return (sum / validScores.length).toFixed(2);
 };
 
 const getUnseenTeams = (availableTeams, seenTeams) => {
@@ -32,42 +34,120 @@ const getUnseenTeams = (availableTeams, seenTeams) => {
   return unseenTeams;
 };
 
-const getTeamsToAssign = (availableTeams, seenTeamsByJudge, judgeSeenTeams) => {
-  const unseenTeams = getUnseenTeams(availableTeams, judgeSeenTeams);
-  if (unseenTeams.length === 0) {
-    console.log('No unseen teams available');
-    return [];
+// Add Fisher-Yates shuffle function
+const shuffleArray = (array) => {
+  for (let i = array.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [array[i], array[j]] = [array[j], array[i]];
+  }
+  return array;
+};
+
+const getTeamsToAssign = (availableTeams, seenTeamsByJudge, judgeSeenTeams, currentTeamsByJudge, currentJudge, teamRange) => {
+  console.log('Getting teams to assign for judge:', currentJudge);
+  console.log('Judge seen teams:', judgeSeenTeams);
+  console.log('All available teams:', availableTeams);
+  console.log('Current team range:', teamRange);
+  
+  // Filter teams to only include those within the current range
+  const teamsInRange = availableTeams.filter(team => {
+    const teamNum = parseInt(team.split(' ')[1]);
+    const isInRange = teamNum >= teamRange.start && teamNum <= teamRange.end;
+    console.log(`Team ${team}: ${isInRange ? 'in range' : 'out of range'}`);
+    return isInRange;
+  });
+  
+  console.log('Teams within range:', teamsInRange);
+  
+  // Get all teams this judge hasn't seen yet
+  const judgeUnseenTeams = teamsInRange.filter(team => {
+    const hasSeen = judgeSeenTeams.includes(team);
+    console.log(`Team ${team}: ${hasSeen ? 'seen' : 'unseen'}`);
+    return !hasSeen;
+  });
+  
+  console.log('Judge unseen teams:', judgeUnseenTeams);
+  
+  // Get currently assigned teams across all judges, excluding the current judge
+  const currentlyAssignedTeams = new Set();
+  Object.entries(currentTeamsByJudge).forEach(([judge, teams]) => {
+    if (judge !== currentJudge) {  // Don't count teams assigned to the current judge
+      teams.forEach(team => currentlyAssignedTeams.add(team));
+    }
+  });
+  
+  console.log('Currently assigned teams:', Array.from(currentlyAssignedTeams));
+
+  // Count how many times each unseen team has been judged
+  const teamJudgmentCounts = {};
+  judgeUnseenTeams.forEach(team => {
+    teamJudgmentCounts[team] = Object.values(seenTeamsByJudge).filter(judgeTeams => judgeTeams.includes(team)).length;
+  });
+  
+  console.log('Team judgment counts:', teamJudgmentCounts);
+
+  // Sort unseen teams by judgment count (least judged first)
+  const sortedUnseenTeams = [...judgeUnseenTeams].sort((a, b) => {
+    const countDiff = teamJudgmentCounts[a] - teamJudgmentCounts[b];
+    return countDiff === 0 ? parseInt(a.split(' ')[1]) - parseInt(b.split(' ')[1]) : countDiff;
+  });
+  
+  console.log('Sorted unseen teams:', sortedUnseenTeams);
+
+  // If we have 5 or more teams available, just take 5 regardless of range or current assignments
+  if (sortedUnseenTeams.length >= 5) {
+    const assignedTeams = shuffleArray([...sortedUnseenTeams])
+      .slice(0, 5)
+      .sort((a, b) => parseInt(a.split(' ')[1]) - parseInt(b.split(' ')[1]));
+    console.log('Assigned teams (5+ available):', assignedTeams);
+    return assignedTeams;
   }
 
-  const teamJudgmentCounts = {};
-  unseenTeams.forEach(team => {
-    teamJudgmentCounts[team] = 0;
-    Object.values(seenTeamsByJudge).forEach(judgeTeams => {
-      if (judgeTeams.includes(team)) teamJudgmentCounts[team]++;
+  // If we have fewer than 5 teams, try to find teams within range
+  let assignedTeams = [];
+  for (let i = 0; i < sortedUnseenTeams.length && assignedTeams.length === 0; i++) {
+    const startTeam = parseInt(sortedUnseenTeams[i].split(' ')[1]);
+    const teamsInRange = sortedUnseenTeams.filter(team => {
+      const teamNum = parseInt(team.split(' ')[1]);
+      return Math.abs(teamNum - startTeam) <= 9;
     });
-  });
 
-  const assignedTeams = unseenTeams
-    .sort((a, b) => teamJudgmentCounts[a] - teamJudgmentCounts[b])
-    .slice(0, 5);
+    if (teamsInRange.length >= 5) {
+      // If we found 5 or more teams in range, shuffle and take 5
+      assignedTeams = shuffleArray([...teamsInRange])
+        .slice(0, 5)
+        .sort((a, b) => parseInt(a.split(' ')[1]) - parseInt(b.split(' ')[1]));
+    }
+  }
 
-  console.log('Teams assigned:', assignedTeams);
-  console.log('Team judgment counts:', teamJudgmentCounts);
+  // If we couldn't find 5 teams in range, just take all available teams
+  if (assignedTeams.length === 0 && sortedUnseenTeams.length > 0) {
+    assignedTeams = sortedUnseenTeams
+      .sort((a, b) => parseInt(a.split(' ')[1]) - parseInt(b.split(' ')[1]));
+  }
+
+  console.log('Final assigned teams:', assignedTeams);
   return assignedTeams;
 };
 
 // Add error handling for score submission
 const submitScore = async (judge, team, score) => {
   try {
-    await fetch(`${BACKEND_URL}/api/scores`, {
+    const response = await fetch(`${BACKEND_URL}/api/scores`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ judge, team, score })
     });
-    return true;
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data;
   } catch (error) {
-    console.log("Error handled silently:", error);
-    return true;
+    console.error(`Error submitting score for ${team} by ${judge}:`, error);
+    throw error; // Re-throw to handle in the calling function
   }
 };
 
@@ -75,60 +155,160 @@ function App() {
   // Load team range from localStorage on initial render
   const [teamRange, setTeamRange] = useState(() => {
     const savedRange = localStorage.getItem('teamRange');
-    return savedRange ? JSON.parse(savedRange) : { start: 51, end: 99 };
+    if (savedRange) {
+      const parsed = JSON.parse(savedRange);
+      console.log('Loading team range from localStorage:', parsed);
+      return parsed;
+    }
+    const defaultRange = { start: 51, end: 99 };
+    localStorage.setItem('teamRange', JSON.stringify(defaultRange));
+    return defaultRange;
   });
   
   const [teams, setTeams] = useState(() => {
     const range = teamRange;
-    return Array.from({ length: range.end - range.start + 1 }, (_, i) => `Team ${i + range.start}`);
+    const teamsList = Array.from({ length: range.end - range.start + 1 }, (_, i) => `Team ${i + range.start}`);
+    console.log('DEBUG - Initializing teams:', teamsList);
+    return teamsList;
   });
   
-  const [currentTeamsByJudge, setCurrentTeamsByJudge] = useState({});
-  const [scoresByJudge, setScoresByJudge] = useState({});
-  const [judges, setJudges] = useState([]);
+  // Initialize states with localStorage data
+  const [currentTeamsByJudge, setCurrentTeamsByJudge] = useState(() => {
+    const saved = localStorage.getItem('currentTeamsByJudge');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      console.log('Loading currentTeamsByJudge from localStorage:', parsed);
+      // Filter out teams outside the current range
+      const filtered = {};
+      Object.entries(parsed).forEach(([judge, teams]) => {
+        filtered[judge] = teams.filter(team => {
+          const teamNum = parseInt(team.split(' ')[1]);
+          return teamNum >= teamRange.start && teamNum <= teamRange.end;
+        });
+      });
+      console.log('Filtered currentTeamsByJudge:', filtered);
+      return filtered;
+    }
+    return {};
+  });
+
+  const [scoresByJudge, setScoresByJudge] = useState(() => {
+    const saved = localStorage.getItem('scoresByJudge');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      console.log('Loading scoresByJudge from localStorage:', parsed);
+      // Filter out teams outside the current range
+      const filtered = {};
+      Object.entries(parsed).forEach(([judge, scores]) => {
+        const teams = currentTeamsByJudge[judge] || [];
+        filtered[judge] = scores.filter((_, index) => {
+          const team = teams[index];
+          if (!team) return false;
+          const teamNum = parseInt(team.split(' ')[1]);
+          return teamNum >= teamRange.start && teamNum <= teamRange.end;
+        });
+      });
+      console.log('Filtered scoresByJudge:', filtered);
+      return filtered;
+    }
+    return {};
+  });
+
+  const [isAssigningTeams, setIsAssigningTeams] = useState(false);
+  
+  // Load judges from localStorage on initial render
+  const [judges, setJudges] = useState(() => {
+    const saved = localStorage.getItem('judges');
+    return saved ? JSON.parse(saved) : [];
+  });
+  
   const [currentJudge, setCurrentJudge] = useState("");
   const [seenTeamsByJudge, setSeenTeamsByJudge] = useState({});
   const [scoreTableData, setScoreTableData] = useState({});
   const [isLoading, setIsLoading] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [tempTeamRange, setTempTeamRange] = useState({ start: 51, end: 99 });
-  const [formErrors, setFormErrors] = useState({});
+
+  // Save current teams and scores to localStorage whenever they change
+  useEffect(() => {
+    if (Object.keys(currentTeamsByJudge).length > 0) {
+      localStorage.setItem('currentTeamsByJudge', JSON.stringify(currentTeamsByJudge));
+    }
+  }, [currentTeamsByJudge]);
+
+  useEffect(() => {
+    if (Object.keys(scoresByJudge).length > 0) {
+      localStorage.setItem('scoresByJudge', JSON.stringify(scoresByJudge));
+    }
+  }, [scoresByJudge]);
+
+  // Save judges and team range to localStorage
+  useEffect(() => {
+    localStorage.setItem('judges', JSON.stringify(judges));
+  }, [judges]);
+
+  // Update tempTeamRange when teamRange changes
+  useEffect(() => {
+    setTempTeamRange(teamRange);
+  }, [teamRange]);
 
   const updateTeamRange = (start, end) => {
     const startNum = parseInt(start);
     const endNum = parseInt(end);
     if (!isNaN(startNum) && !isNaN(endNum) && startNum > 0 && endNum >= startNum) {
       const newRange = { start: startNum, end: endNum };
-      setTeamRange(newRange);
-      // Save to localStorage
+      console.log('Updating team range to:', newRange);
+      
+      // Clear all localStorage items related to teams and assignments
+      localStorage.removeItem('currentTeamsByJudge');
+      localStorage.removeItem('scoresByJudge');
+      localStorage.removeItem('seenTeamsByJudge');
+      
+      // Save new range to localStorage
       localStorage.setItem('teamRange', JSON.stringify(newRange));
-      setTeams(Array.from({ length: endNum - startNum + 1 }, (_, i) => `Team ${i + startNum}`));
+      
+      // Update state
+      setTeamRange(newRange);
+      const newTeams = Array.from({ length: endNum - startNum + 1 }, (_, i) => `Team ${i + startNum}`);
+      setTeams(newTeams);
+      
       // Reset all state to avoid issues with removed teams
       setCurrentTeamsByJudge({});
       setScoresByJudge({});
       setSeenTeamsByJudge({});
       setScoreTableData({});
       setCurrentJudge("");
+      setTempTeamRange(newRange); // Update the temp range in the UI
+      
+      // Clear the judge selection dropdown
+      const judgeSelect = document.querySelector('select');
+      if (judgeSelect) {
+        judgeSelect.value = '';
+      }
+      
+      // Clear any visible team inputs
+      const teamInputs = document.querySelectorAll('.team-inputs input');
+      teamInputs.forEach(input => {
+        input.value = '';
+      });
+      
+      console.log('Cleared all team-related data from localStorage, state, and UI');
     }
   };
 
-  // Load judges on component mount
+  // Save team range to localStorage whenever it changes
   useEffect(() => {
-    const fetchJudges = async () => {
-      try {
-        const response = await fetch(`${BACKEND_URL}/api/judges`);
-        if (!response.ok) {
-          throw new Error('Failed to fetch judges');
-        }
-        const data = await response.json();
-        setJudges(data);
-      } catch (error) {
-        console.error("Error fetching judges:", error);
-      }
-    };
-
-    fetchJudges();
-  }, []);
+    if (teamRange) {
+      console.log('Saving team range to localStorage:', teamRange);
+      localStorage.setItem('teamRange', JSON.stringify(teamRange));
+      // Update teams list when range changes
+      const newTeams = Array.from(
+        { length: teamRange.end - teamRange.start + 1 }, 
+        (_, i) => `Team ${i + teamRange.start}`
+      );
+      setTeams(newTeams);
+    }
+  }, [teamRange]);
 
   useEffect(() => {
     const loadData = async () => {
@@ -163,42 +343,81 @@ function App() {
           }
         });
 
-        setJudges(sortedJudges);
+        console.log('Loaded seen teams from backend:', newSeenTeams);
+
+        // Merge fetched judges with localStorage judges
+        const mergedJudges = [...new Set([...judges, ...sortedJudges])].sort((a, b) => a.localeCompare(b));
+        setJudges(mergedJudges);
         setScoreTableData(newScoreTable);
         setSeenTeamsByJudge(newSeenTeams);
         setIsLoading(false);
       } catch (error) {
-        // Silently handle any errors
-        console.log("Error handled silently:", error);
+        console.error("Error loading data:", error);
         setIsLoading(false);
       }
     };
 
     loadData();
-  }, [teams]);
+  }, []); // Only run once on mount
 
-  const handleJudgeChange = (event) => {
+  // Add logging to useEffect for team assignments
+  useEffect(() => {
+    if (currentJudge) {
+      console.log('Current judge changed:', currentJudge);
+      console.log('Current team range:', teamRange);
+      const currentTeams = currentTeamsByJudge[currentJudge] || [];
+      console.log('Current teams for judge:', currentTeams);
+      const needsNewTeams = currentTeams.length < 5;
+
+      if (!currentTeamsByJudge[currentJudge] || needsNewTeams) {
+        const judgeSeenTeams = seenTeamsByJudge[currentJudge] || [];
+        console.log('Judge seen teams:', judgeSeenTeams);
+        const teamsToAssign = getTeamsToAssign(teams, seenTeamsByJudge, judgeSeenTeams, currentTeamsByJudge, currentJudge, teamRange);
+        console.log('Teams to assign:', teamsToAssign);
+        
+        if (teamsToAssign.length > 0) {
+          setCurrentTeamsByJudge(prev => {
+            const updated = { ...prev, [currentJudge]: teamsToAssign };
+            console.log('Updated currentTeamsByJudge:', updated);
+            return updated;
+          });
+          setScoresByJudge(prev => {
+            const updated = { ...prev, [currentJudge]: Array(teamsToAssign.length).fill("") };
+            console.log('Updated scoresByJudge:', updated);
+            return updated;
+          });
+        }
+      }
+    }
+  }, [currentJudge, teamRange]); // Add teamRange to dependencies
+
+  const handleJudgeChange = async (event) => {
     const selectedJudge = event.target.value;
+    if (!selectedJudge) {
+      setCurrentJudge("");
+      return;
+    }
+
+    setIsAssigningTeams(true);
     setCurrentJudge(selectedJudge);
-    setFormErrors({});
 
-    if (!selectedJudge) return;
+    // Check if judge has teams assigned and if they have fewer than 5 teams
+    const currentTeams = currentTeamsByJudge[selectedJudge] || [];
+    const needsNewTeams = currentTeams.length < 5;
 
-    if (!currentTeamsByJudge[selectedJudge]) {
+    if (!currentTeamsByJudge[selectedJudge] || needsNewTeams) {
       const judgeSeenTeams = seenTeamsByJudge[selectedJudge] || [];
-      console.log('Judge seen teams:', judgeSeenTeams);
-      const teamsToAssign = getTeamsToAssign(teams, seenTeamsByJudge, judgeSeenTeams);
-      console.log('Assigning teams to judge:', selectedJudge, teamsToAssign);
+      const teamsToAssign = getTeamsToAssign(teams, seenTeamsByJudge, judgeSeenTeams, currentTeamsByJudge, selectedJudge, teamRange);
       
-      if (teamsToAssign.length === 0) {
-        // If no unseen teams, show message and don't assign any teams
-        setCurrentTeamsByJudge(prev => ({ ...prev, [selectedJudge]: [] }));
-        setScoresByJudge(prev => ({ ...prev, [selectedJudge]: [] }));
-      } else {
+      if (teamsToAssign.length > 0) {
         setCurrentTeamsByJudge(prev => ({ ...prev, [selectedJudge]: teamsToAssign }));
         setScoresByJudge(prev => ({ ...prev, [selectedJudge]: Array(teamsToAssign.length).fill("") }));
       }
     }
+    
+    // Add a small delay to show loading state
+    await new Promise(resolve => setTimeout(resolve, 300));
+    setIsAssigningTeams(false);
   };
 
   const addNewJudge = async () => {
@@ -207,19 +426,17 @@ function App() {
 
     try {
       // Add judge to state (maintaining sort)
-      setJudges(prev => [...prev, newJudge].sort((a, b) => a.localeCompare(b)));
+      const updatedJudges = [...judges, newJudge].sort((a, b) => a.localeCompare(b));
+      setJudges(updatedJudges);
       
       // Check if there are any unseen teams
       const judgeSeenTeams = seenTeamsByJudge[newJudge] || [];
-      const teamsToAssign = getTeamsToAssign(teams, seenTeamsByJudge, judgeSeenTeams);
+      const teamsToAssign = getTeamsToAssign(teams, seenTeamsByJudge, judgeSeenTeams, currentTeamsByJudge, newJudge, teamRange);
       
-      // Only assign teams if there are unseen ones
+      // Only assign teams if there are teams to assign
       if (teamsToAssign.length > 0) {
         setCurrentTeamsByJudge(prev => ({ ...prev, [newJudge]: teamsToAssign }));
         setScoresByJudge(prev => ({ ...prev, [newJudge]: Array(teamsToAssign.length).fill("") }));
-      } else {
-        setCurrentTeamsByJudge(prev => ({ ...prev, [newJudge]: [] }));
-        setScoresByJudge(prev => ({ ...prev, [newJudge]: [] }));
       }
 
       // Register judge in backend without creating any scores
@@ -233,100 +450,136 @@ function App() {
 
       // Set current judge to the new judge
       setCurrentJudge(newJudge);
-      setFormErrors({});
     } catch (error) {
-      // Silently handle any errors
       console.log("Error handled silently:", error);
     }
   };
 
   const handleScoreChange = (index, value) => {
-    const numValue = parseFloat(value);
-    if (value === "" || (!isNaN(numValue) && numValue >= 0 && numValue <= 3)) {
+    // Only update if the value is empty or a valid number between 0 and 3
+    if (value === "" || (parseFloat(value) >= 0 && parseFloat(value) <= 3)) {
       setScoresByJudge(prev => ({
         ...prev,
-        [currentJudge]: prev[currentJudge].map((score, i) => i === index ? value : score)
-      }));
-      setFormErrors(prev => {
-        const newErrors = { ...prev };
-        delete newErrors[index];
-        return newErrors;
-      });
-    } else {
-      setFormErrors(prev => ({
-        ...prev,
-        [index]: "Score must be between 0 and 3"
+        [currentJudge]: prev[currentJudge].map((score, i) => 
+          i === index ? value : score
+        )
       }));
     }
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const handleSubmit = async () => {
     if (!currentJudge) return;
 
-    const currentTeams = currentTeamsByJudge[currentJudge];
-    const currentScores = scoresByJudge[currentJudge];
-    
-    // Validate all assigned teams have valid scores
-    const errors = {};
-    currentTeams.forEach((_, index) => {
-      const score = currentScores[index];
-      if (score === "") {
-        errors[index] = "Score is required";
-      } else {
-        const numScore = parseFloat(score);
-        if (isNaN(numScore) || numScore < 0 || numScore > 3) {
-          errors[index] = "Score must be between 0 and 3";
-        }
-      }
-    });
-
-    if (Object.keys(errors).length > 0) {
-      setFormErrors(errors);
-      return;
-    }
-
     try {
-      console.log('Submitting scores for judge:', currentJudge, 'teams:', currentTeams);
-      for (let i = 0; i < currentTeams.length; i++) {
-        await submitScore(currentJudge, currentTeams[i], parseFloat(currentScores[i]));
-        if (i < currentTeams.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 200));
-        }
+      const currentTeams = currentTeamsByJudge[currentJudge];
+      const currentScores = scoresByJudge[currentJudge];
+      
+      if (!currentTeams || !currentScores) {
+        console.error("No teams or scores found for current judge");
+        return;
       }
 
+      // Get only the teams that have scores
+      const teamsWithScores = currentTeams.filter((_, index) => currentScores[index] !== "");
+      const validScores = currentScores.filter(score => score !== "");
+      
+      // Validate that all assigned teams have scores
+      if (teamsWithScores.length !== currentTeams.length) {
+        alert("Please provide scores for all assigned teams before submitting.");
+        return;
+      }
+
+      // Clear UI state immediately
+      setCurrentTeamsByJudge({});
+      setScoresByJudge({});
+      setCurrentJudge("");
+      
+      console.log('Submitting scores for teams:', teamsWithScores);
+      
+      // Submit all scores in parallel
+      const scorePromises = teamsWithScores.map((team, i) => 
+        submitScore(currentJudge, team, parseFloat(validScores[i]))
+      );
+      
+      // Wait for all scores to be submitted
+      await Promise.all(scorePromises);
+
+      // Update the score table with submitted scores
       const newScoreTable = { ...scoreTableData };
-      currentTeams.forEach((team, i) => {
+      teamsWithScores.forEach((team, i) => {
         if (!newScoreTable[team]) newScoreTable[team] = {};
-        newScoreTable[team][currentJudge] = parseFloat(currentScores[i]);
+        newScoreTable[team][currentJudge] = parseFloat(validScores[i]);
       });
       setScoreTableData(newScoreTable);
 
-      // Update seen teams
+      // Update seen teams - only mark teams that were actually scored as seen
       setSeenTeamsByJudge(prev => {
-        const newSeenTeams = {
-          ...prev,
-          [currentJudge]: [...(prev[currentJudge] || []), ...currentTeams]
-        };
-        console.log('Updated seen teams for judge:', currentJudge, newSeenTeams[currentJudge]);
-        return newSeenTeams;
+        const updated = { ...prev };
+        if (!updated[currentJudge]) {
+          updated[currentJudge] = [];
+        }
+        // Add only teams that were successfully scored
+        teamsWithScores.forEach(team => {
+          if (!updated[currentJudge].includes(team)) {
+            updated[currentJudge].push(team);
+          }
+        });
+        console.log('Updated seen teams for judge:', currentJudge, updated[currentJudge]);
+        return updated;
       });
 
-      setCurrentTeamsByJudge(prev => {
-        const newState = { ...prev };
-        delete newState[currentJudge];
-        return newState;
-      });
-      setScoresByJudge(prev => {
-        const newState = { ...prev };
-        delete newState[currentJudge];
-        return newState;
-      });
+      // Clear localStorage for current teams and scores
+      localStorage.removeItem('currentTeamsByJudge');
+      localStorage.removeItem('scoresByJudge');
 
-      setCurrentJudge("");
-      setFormErrors({});
+      // Show success message
+      alert("Scores submitted successfully!");
     } catch (error) {
-      console.log("Error handled silently:", error);
+      console.error("Error submitting scores:", error);
+      alert("An error occurred while submitting scores. Please try again.");
+    }
+  };
+
+  // Update the useEffect for seen teams to properly handle localStorage
+  useEffect(() => {
+    if (Object.keys(seenTeamsByJudge).length > 0) {
+      localStorage.setItem('seenTeamsByJudge', JSON.stringify(seenTeamsByJudge));
+    } else {
+      localStorage.removeItem('seenTeamsByJudge');
+    }
+  }, [seenTeamsByJudge]);
+
+  const resetJudges = async () => {
+    if (window.confirm('Are you sure you want to reset all judges? This will clear all seen teams and scores.')) {
+      try {
+        // Clear all state
+        setJudges([]);
+        setCurrentTeamsByJudge({});
+        setScoresByJudge({});
+        setSeenTeamsByJudge({});
+        setScoreTableData({});
+        setCurrentJudge("");
+
+        // Clear localStorage
+        localStorage.removeItem('judges');
+        localStorage.removeItem('currentTeamsByJudge');
+        localStorage.removeItem('scoresByJudge');
+        localStorage.removeItem('seenTeamsByJudge');
+
+        // Clear backend data
+        const response = await fetch(`${BACKEND_URL}/api/scores`, {
+          method: 'DELETE'
+        });
+
+        // if (!response.ok) {
+        //   throw new Error('Failed to clear scores from database');
+        // }
+
+        alert('All judges have been reset successfully!');
+      } catch (error) {
+        console.error('Error resetting judges:', error);
+        alert('An error occurred while resetting judges. Please try again.');
+      }
     }
   };
 
@@ -361,7 +614,7 @@ function App() {
                 borderRadius: '4px',
                 marginBottom: '20px'
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
                   <label style={{ color: '#f1ead2' }}>Team Range: </label>
                   <div className="range-inputs">
                     <input
@@ -384,6 +637,19 @@ function App() {
                     Update Range
                   </button>
                 </div>
+                <button 
+                  onClick={resetJudges}
+                  style={{
+                    backgroundColor: '#dc3545',
+                    color: 'white',
+                    border: 'none',
+                    padding: '8px 16px',
+                    borderRadius: '4px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Reset All Judges
+                </button>
               </div>
             )}
           </div>
@@ -406,67 +672,51 @@ function App() {
           </div>
 
           {currentJudge && (
-            <form onSubmit={handleSubmit} noValidate>
-              <div className="team-inputs">
-                {(currentTeamsByJudge[currentJudge] || []).map((team, index) => (
-                  <div key={team} className="team-input">
-                    <span>{team}:</span>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <input
-                        type="number"
-                        min="0"
-                        max="3"
-                        step="0.1"
-                        placeholder="Score (0-3)"
-                        value={scoresByJudge[currentJudge]?.[index] || ""}
-                        onChange={(e) => handleScoreChange(index, e.target.value)}
-                        style={{
-                          borderColor: formErrors[index] ? '#ff4444' : undefined
-                        }}
-                      />
-                      {formErrors[index] && (
-                        <span style={{ 
-                          color: '#ff4444', 
-                          fontSize: '12px',
-                          marginTop: '-2px'
-                        }}>
-                          {formErrors[index]}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {currentTeamsByJudge[currentJudge]?.length > 0 ? (
-                <button type="submit" className="submit-btn">Submit Scores</button>
+            <form onSubmit={handleSubmit}>
+              {isAssigningTeams ? (
+                <div style={{ textAlign: 'center', padding: '20px' }}>
+                  <div style={{ 
+                    display: 'inline-block',
+                    width: '40px',
+                    height: '40px',
+                    border: '4px solid #f3f3f3',
+                    borderTop: '4px solid #1b2d3f',
+                    borderRadius: '50%',
+                    animation: 'spin 1s linear infinite'
+                  }} />
+                  <div style={{ marginTop: '10px' }}>Assigning teams...</div>
+                </div>
               ) : (
-                <div style={{ 
-                  color: '#666', 
-                  marginTop: '20px',
-                  textAlign: 'center',
-                  padding: '15px',
-                  backgroundColor: '#f8f9fa',
-                  borderRadius: '4px',
-                  border: '1px solid #dee2e6'
-                }}>
-                  {seenTeamsByJudge[currentJudge]?.length === teams.length ? (
-                    <div>
-                      <strong>You have judged all available teams!</strong>
-                      <p style={{ marginTop: '5px', fontSize: '0.9em' }}>
-                        Thank you for your participation. You cannot be assigned any more teams.
-                      </p>
-                    </div>
-                  ) : (
-                    <div>
-                      <strong>No teams available at the moment</strong>
-                      <p style={{ marginTop: '5px', fontSize: '0.9em' }}>
-                        Please try again later or contact the administrator if you believe this is an error.
-                      </p>
-                    </div>
-                  )}
+                <div className="team-inputs">
+                  {(currentTeamsByJudge[currentJudge] || [])
+                    .filter(team => team !== "Team 0")  // Hide Team 0 from input interface
+                    .map((team, index) => (
+                      <div key={team} className="team-input">
+                        <span>{team}:</span>
+                        <input
+                          type="number"
+                          min="0"
+                          max="3"
+                          step="0.1"
+                          placeholder="Score (0-3)"
+                          value={scoresByJudge[currentJudge]?.[index] || ""}
+                          onChange={(e) => handleScoreChange(index, e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleSubmit();
+                            }
+                          }}
+                          required
+                        />
+                      </div>
+                    ))}
                 </div>
               )}
+
+              <button type="submit" className="submit-btn">
+                Submit Scores ({currentTeamsByJudge[currentJudge]?.length || 0} teams)
+              </button>
             </form>
           )}
 
@@ -496,12 +746,13 @@ function App() {
                 </tr>
               </thead>
               <tbody>
-                {teams.map(team => {
+                {teams
+                  .map(team => {
                   const teamScores = scoreTableData[team] || {};
                   const average = calculateAverage(teamScores);
                   
                   return (
-                    <tr key={team}>
+                    <tr key={team} style={team === "Team 0" ? { backgroundColor: '#fff3f3' } : {}}>
                       <td style={tableCellStyle}>{team}</td>
                       {judges.map(judge => (
                         <td key={`${team}-${judge}`} style={tableCellStyle}>
@@ -512,9 +763,9 @@ function App() {
                         ...tableCellStyle,
                         position: 'sticky',
                         right: 0,
-                        background: 'white',
+                        background: team === "Team 0" ? '#fff3f3' : 'white',
                         fontWeight: 'bold',
-                        color: '#2c5282'
+                        color: team === "Team 0" ? '#ff4444' : '#2c5282'
                       }}>{average}</td>
                     </tr>
                   );
@@ -527,5 +778,15 @@ function App() {
     </div>
   );
 }
+
+// Add the spin animation
+const style = document.createElement('style');
+style.textContent = `
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+`;
+document.head.appendChild(style);
 
 export default App;
